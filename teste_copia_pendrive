@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+import os
+import shutil
+import time
+import subprocess
+from datetime import datetime
+
+# Configurações
+DESTINO = os.path.expanduser('~/Backup_Pendrive')
+LOG_FILE = os.path.join(DESTINO, 'log.txt')
+BAG_READER_PATH = os.path.expanduser('~/Desktop/Meus_Trabalhos/bag_reader.py')
+YAML_OUTPUT_DIR = os.path.join(DESTINO, 'yaml_output')
+
+def get_mounted_devices():
+    """Lista dispositivos montados."""
+    try:
+        return [
+            line.split()[2] 
+            for line in subprocess.check_output(['mount']).decode('utf-8').split('\n') 
+            if line
+        ]
+    except Exception as e:
+        log(f"Erro ao listar dispositivos: {str(e)}")
+        return []
+
+def is_usb_device(mount_point):
+    """Verifica se é um pendrive."""
+    return mount_point.startswith('/media/')
+
+def copy_files(origem, destino):
+    """Copia arquivos removendo '(1)' dos nomes."""
+    try:
+        os.makedirs(destino, exist_ok=True)
+        
+        for item in os.listdir(origem):
+            if item.startswith('.'):
+                continue
+            
+            src = os.path.join(origem, item)
+            dst = os.path.join(destino, item.replace("(1)", ""))
+            
+            if os.path.isfile(src):
+                shutil.copy2(src, dst)
+                log(f"Copiado: {item} → {os.path.basename(dst)}")
+            elif os.path.isdir(src):
+                shutil.copytree(src, dst, dirs_exist_ok=True)
+        
+        return True
+    except Exception as e:
+        log(f"Erro na cópia: {str(e)}")
+        return False
+
+def process_bag_file(bag_path):
+    """Executa bag_reader.py no arquivo .bag."""
+    try:
+        os.makedirs(YAML_OUTPUT_DIR, exist_ok=True)
+        nome_saida = f"{os.path.splitext(os.path.basename(bag_path))[0]}_tasks.yaml"
+        yaml_saida = os.path.join(YAML_OUTPUT_DIR, nome_saida)
+        
+        log(f"Processando: {os.path.basename(bag_path)} → {nome_saida}")
+        
+        cmd = [
+            'python3',
+            BAG_READER_PATH,
+            bag_path,
+            '--output', yaml_saida
+        ]
+        
+        resultado = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if resultado.stdout:
+            log(f"Saída:\n{resultado.stdout}")
+        if resultado.stderr:
+            log(f"Erros:\n{resultado.stderr}")
+        
+        return resultado.returncode == 0
+    except Exception as e:
+        log(f"Falha ao processar .bag: {str(e)}")
+        return False
+
+def log(mensagem):
+    """Registra mensagens com timestamp."""
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    log_entry = f"[{timestamp}] {mensagem}"
+    
+    with open(LOG_FILE, 'a', encoding='utf-8') as f:
+        f.write(log_entry + '\n')
+    print(log_entry)
+
+def main():
+    os.makedirs(DESTINO, exist_ok=True)
+    log("Iniciando monitoramento de pendrives...")
+    
+    dispositivos_anteriores = set()
+    
+    try:
+        while True:
+            dispositivos_atual = set(get_mounted_devices())
+            novos = dispositivos_atual - dispositivos_anteriores
+            
+            for dispositivo in novos:
+                if is_usb_device(dispositivo):
+                    log(f"Pendrive detectado: {dispositivo}")
+                    pasta_backup = os.path.join(
+                        DESTINO, 
+                        datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+                    )
+                    
+                    if copy_files(dispositivo, pasta_backup):
+                        log(f"Backup criado em: {pasta_backup}")
+                        
+                        for arquivo in os.listdir(pasta_backup):
+                            if arquivo.endswith('.bag'):
+                                process_bag_file(os.path.join(pasta_backup, arquivo))
+            
+            dispositivos_anteriores = dispositivos_atual
+            time.sleep(5)
+            
+    except KeyboardInterrupt:
+        log("Monitoramento interrompido")
+    except Exception as e:
+        log(f"ERRO: {str(e)}")
+
+if __name__ == "__main__":
+    main()
