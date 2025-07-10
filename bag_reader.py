@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
 """
@@ -15,6 +15,8 @@ import argparse
 import yaml
 import logging
 import sys
+import os
+import shutil
 
 # Configuração básica do logging. A string 'format' aqui usa uma sintaxe
 # especial do módulo logging e não deve ser alterada para .format().
@@ -88,9 +90,21 @@ def extrair_e_salvar_em_yaml(caminho_bag, arquivo_saida):
 
             logging.info("Processamento concluído. Salvando {} transportes de objeto únicos em '{}'".format(len(transportes_individuais), arquivo_saida))
             with open(arquivo_saida, 'w') as f:
-                yaml.dump(transportes_individuais, f, default_flow_style=False, sort_keys=False)
+                yaml.dump(transportes_individuais, f, default_flow_style=False)
             
             logging.info("Arquivo salvo com sucesso!")
+            
+            # Também salvar na pasta config do work_behavior
+            config_path = '/home/turtlebot/main_ws/src/work_behavior/config'
+            if os.path.exists(config_path):
+                try:
+                    config_file = os.path.join(config_path, os.path.basename(arquivo_saida))
+                    shutil.copy2(arquivo_saida, config_file)
+                    logging.info("Arquivo também salvo em: {}".format(config_file))
+                except Exception as e:
+                    logging.warning("Não foi possível salvar na pasta config: {}".format(e))
+            else:
+                logging.warning("Pasta config não encontrada: {}".format(config_path))
 
     except Exception as e:
         raise ErroLeituraBag("Falha ao processar o arquivo de bag: {}".format(e))
