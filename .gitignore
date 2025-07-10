@@ -1,0 +1,8 @@
+# Ignora backups, logs e saídas geradas pelo script
+documents/
+Backup_Pendrive/
+*.log
+log.txt
+yaml_output/
+__pycache__/
+*.pyc

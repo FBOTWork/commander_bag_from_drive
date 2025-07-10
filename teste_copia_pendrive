@@ -6,9 +6,9 @@ import subprocess
 from datetime import datetime
 
 # Configurações
-DESTINO = os.path.expanduser('~/Backup_Pendrive')
+DESTINO = os.path.abspath(os.path.join(os.path.dirname(__file__), 'Backup_Pendrive'))
 LOG_FILE = os.path.join(DESTINO, 'log.txt')
-BAG_READER_PATH = os.path.expanduser('~/Desktop/Meus_Trabalhos/bag_reader.py')
+BAG_READER_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'bag_reader.py'))
 YAML_OUTPUT_DIR = os.path.join(DESTINO, 'yaml_output')
 
 def get_mounted_devices():
