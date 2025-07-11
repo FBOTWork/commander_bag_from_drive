@@ -56,7 +56,8 @@ def extrair_e_salvar_em_yaml(caminho_bag, arquivo_saida):
                             for obj in workstation.objects:
                                 objetos.append({
                                     'id': getattr(obj, 'object', None),
-                                    'is_decoy': getattr(obj, 'decoy', None)
+                                    'is_decoy': getattr(obj, 'decoy', None),
+                                    'target': getattr(obj, 'target', None)
                                 })
                             origens.append((workstation.name, objetos))
                         else:
@@ -72,7 +73,7 @@ def extrair_e_salvar_em_yaml(caminho_bag, arquivo_saida):
                 # Se houver mais objetos que destinos, faz ciclo
                 for idx, (origem_nome, obj_info) in enumerate(objetos_flat):
                     destino_nome = destinos[idx % len(destinos)]
-                    chave_da_tarefa = (origem_nome, destino_nome, obj_info['id'], obj_info['is_decoy'])
+                    chave_da_tarefa = (origem_nome, destino_nome, obj_info['id'], obj_info['is_decoy'], obj_info['target'])
                     if chave_da_tarefa in tarefas_vistas:
                         continue
                     tarefas_vistas.add(chave_da_tarefa)
@@ -80,7 +81,8 @@ def extrair_e_salvar_em_yaml(caminho_bag, arquivo_saida):
                         'source': origem_nome,
                         'destination': destino_nome,
                         'object_id': obj_info['id'],
-                        'is_decoy': obj_info['is_decoy']
+                        'is_decoy': obj_info['is_decoy'],
+                        'target': obj_info['target']
                     }
                     transportes_individuais.append(transporte)
 
