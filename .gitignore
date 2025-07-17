@@ -6,3 +6,7 @@ log.txt
 yaml_output/
 __pycache__/
 *.pyc
+yaml_outputs/
+bags/
+bag_outputs/
+bag_output.py

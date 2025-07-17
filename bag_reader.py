@@ -2,12 +2,13 @@
 # -*- coding: utf-8 -*-
 
 """
-Script final para ler uma bag do atwork_commander, extrair os dados
-aninhados da tarefa, ignorar tarefas duplicadas e salvar cada transporte
-de objeto individualmente em um arquivo YAML.
+Script GENÉRICO para extrair tarefas de uma bag.
 
-Este script foi modificado para rodar sem depender do roscore/ROS
-e usa exclusivamente o método .format() para strings.
+Este script detecta a estrutura da mensagem ('subtasks' ou 'arena_state')
+e gera um arquivo YAML com as tarefas.
+
+MODIFICAÇÃO: Lê por padrão do tópico /atwork_commander/object_task e
+permite que o tópico seja configurado via linha de comando.
 """
 
 import rosbag
@@ -16,117 +17,173 @@ import yaml
 import logging
 import sys
 import os
-import shutil
 
-# Configuração básica do logging. A string 'format' aqui usa uma sintaxe
-# especial do módulo logging e não deve ser alterada para .format().
+# --- Configuração do Logging ---
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     stream=sys.stdout,
 )
 
-class ErroLeituraBag(Exception):
-    """Exceção personalizada para erros que ocorrem ao processar um arquivo de bag."""
-    pass
-
-def extrair_e_salvar_em_yaml(caminho_bag, arquivo_saida):
+def encontrar_caminho_disponivel(caminho_desejado):
     """
-    Lê a bag, ignora duplicatas e salva cada transporte de objeto individualmente.
-    Corrigido: associa cada objeto de origem a uma workstation de destino diferente, na ordem.
+    Verifica se um caminho de arquivo existe. Se sim, adiciona um prefixo
+    numérico até encontrar um nome de arquivo disponível.
     """
-    topico_alvo = '/atwork_commander/task'
-    logging.info("Abrindo a bag: {}".format(caminho_bag))
+    if not os.path.exists(caminho_desejado):
+        return caminho_desejado
 
-    transportes_individuais = []
-    tarefas_vistas = set()
+    diretorio, nome_arquivo = os.path.split(caminho_desejado)
+    nome_base, extensao = os.path.splitext(nome_arquivo)
+
+    contador = 1
+    while True:
+        novo_nome = "{}_{}{}".format(contador, nome_base, extensao)
+        novo_caminho = os.path.join(diretorio, novo_nome)
+
+        if not os.path.exists(novo_caminho):
+            logging.warning("O caminho '{}' já existe. Salvando como '{}'.".format(caminho_desejado, novo_caminho))
+            return novo_caminho
+        
+        contador += 1
+
+def processar_lista_direta(lista_de_tarefas):
+    """
+    Processa uma lista onde cada item já é uma tarefa completa.
+    """
+    transportes = []
+    for tarefa in lista_de_tarefas:
+        try:
+            transporte = {
+                'source': tarefa.source,
+                'destination': tarefa.destination,
+                'object_id': tarefa.object.object,
+                'is_decoy': tarefa.object.decoy,
+                'target': tarefa.object.target
+            }
+            transportes.append(transporte)
+        except AttributeError as e:
+            logging.error("Falha ao ler um atributo da tarefa: {}. Tarefa ignorada.".format(e))
+    return transportes
+
+def processar_estado_arena(lista_de_workstations):
+    """
+    Processa uma lista de workstations para gerar tarefas.
+    """
+    transportes = []
+    origens, destinos = [], []
     
-    try:
-        with rosbag.Bag(caminho_bag, 'r') as bag:
-            logging.info("Iniciando a extração de dados do tópico '{}'...".format(topico_alvo))
+    for ws in lista_de_workstations:
+        if hasattr(ws, 'objects') and len(ws.objects) > 0:
+            objetos = [{'id': o.object, 'is_decoy': o.decoy, 'target': o.target} for o in ws.objects]
+            origens.append((ws.name, objetos))
+        else:
+            destinos.append(ws.name)
+
+    if not origens or not destinos:
+        return []
+    
+    objetos_flat = [(origem_nome, obj) for origem_nome, obj_list in origens for obj in obj_list]
+
+    for idx, (origem_nome, obj_info) in enumerate(objetos_flat):
+        destino_nome = destinos[idx % len(destinos)]
+        transportes.append({
+            'source': origem_nome, 'destination': destino_nome,
+            'object_id': obj_info['id'], 'is_decoy': obj_info['is_decoy'],
+            'target': obj_info['target']
+        })
+    return transportes
+
+# A assinatura da função foi atualizada para aceitar o 'topico_alvo'
+def extrair_tarefas_generico(caminho_bag, caminho_arquivo_saida, topico_alvo):
+    """
+    Função principal que analisa as mensagens da bag de forma genérica.
+    """
+    transportes_extraidos = []
+
+    logging.info("Iniciando leitura do arquivo .bag: '{}'".format(caminho_bag))
+    logging.info("Lendo apenas do tópico especificado: '{}'".format(topico_alvo))
+
+
+    with rosbag.Bag(caminho_bag, 'r') as bag:
+        # Verifica se o tópico alvo existe na bag
+        if topico_alvo not in bag.get_type_and_topic_info()[1].keys():
+            logging.error("ERRO: O tópico '{}' não foi encontrado na bag. Nenhum dado será processado.".format(topico_alvo))
+            return
+
+        # A leitura agora é feita apenas no tópico fornecido
+        for topico, msg, t in bag.read_messages(topics=[topico_alvo]):
+            tarefas_encontradas_na_msg = False
             
-            for topico, msg, t in bag.read_messages(topics=[topico_alvo]):
-                # Coletar workstations de origem (com objetos) e destino (sem objetos)
-                origens = []  # lista de (nome, [objetos])
-                destinos = [] # lista de nomes
-                if hasattr(msg, 'arena_start_state'):
-                    for workstation in msg.arena_start_state:
-                        if hasattr(workstation, 'objects') and len(workstation.objects) > 0:
-                            objetos = []
-                            for obj in workstation.objects:
-                                objetos.append({
-                                    'id': getattr(obj, 'object', None),
-                                    'is_decoy': getattr(obj, 'decoy', None),
-                                    'target': getattr(obj, 'target', None)
-                                })
-                            origens.append((workstation.name, objetos))
-                        else:
-                            destinos.append(workstation.name)
-                # Se não houver objetos, pula
-                if not origens or not destinos:
+            if not hasattr(msg, '__slots__'):
+                logging.warning("A mensagem do tipo '{}' não é um objeto ROS padrão. Pulando.".format(msg._type))
+                continue
+
+            for nome_campo in msg.__slots__:
+                valor_campo = getattr(msg, nome_campo)
+                
+                if not isinstance(valor_campo, list) or not valor_campo:
                     continue
-                # Para cada objeto, associa a um destino (na ordem)
-                objetos_flat = []
-                for origem_nome, objetos in origens:
-                    for obj in objetos:
-                        objetos_flat.append((origem_nome, obj))
-                # Se houver mais objetos que destinos, faz ciclo
-                for idx, (origem_nome, obj_info) in enumerate(objetos_flat):
-                    destino_nome = destinos[idx % len(destinos)]
-                    chave_da_tarefa = (origem_nome, destino_nome, obj_info['id'], obj_info['is_decoy'], obj_info['target'])
-                    if chave_da_tarefa in tarefas_vistas:
-                        continue
-                    tarefas_vistas.add(chave_da_tarefa)
-                    transporte = {
-                        'source': origem_nome,
-                        'destination': destino_nome,
-                        'object_id': obj_info['id'],
-                        'is_decoy': obj_info['is_decoy'],
-                        'target': obj_info['target']
-                    }
-                    transportes_individuais.append(transporte)
 
-            if not transportes_individuais:
-                logging.warning("Nenhuma tarefa única foi encontrada no tópico '{}'. Nenhum arquivo será gerado.".format(topico_alvo))
-                return
+                primeiro_item = valor_campo[0]
 
-            logging.info("Processamento concluído. Salvando {} transportes de objeto únicos em '{}'".format(len(transportes_individuais), arquivo_saida))
-            with open(arquivo_saida, 'w') as f:
-                yaml.dump(transportes_individuais, f, default_flow_style=False)
-            
-            logging.info("Arquivo salvo com sucesso!")
-            
-            # Também salvar na pasta config do work_behavior
-            config_path = '/home/turtlebot/main_ws/src/work_behavior/config'
-            if os.path.exists(config_path):
-                try:
-                    config_file = os.path.join(config_path, os.path.basename(arquivo_saida))
-                    shutil.copy2(arquivo_saida, config_file)
-                    logging.info("Arquivo também salvo em: {}".format(config_file))
-                except Exception as e:
-                    logging.warning("Não foi possível salvar na pasta config: {}".format(e))
-            else:
-                logging.warning("Pasta config não encontrada: {}".format(config_path))
+                if hasattr(primeiro_item, 'source') and hasattr(primeiro_item, 'destination') and hasattr(primeiro_item, 'object'):
+                    logging.info("Campo '{}' detectado como LISTA DE TAREFAS DIRETAS. Processando...".format(nome_campo))
+                    novas_tarefas = processar_lista_direta(valor_campo)
+                    if novas_tarefas:
+                        transportes_extraidos.extend(novas_tarefas)
+                        tarefas_encontradas_na_msg = True
+                    break
 
-    except Exception as e:
-        raise ErroLeituraBag("Falha ao processar o arquivo de bag: {}".format(e))
+                elif hasattr(primeiro_item, 'name') and hasattr(primeiro_item, 'objects'):
+                    logging.info("Campo '{}' detectado como ESTADO DE ARENA. Processando...".format(nome_campo))
+                    novas_tarefas = processar_estado_arena(valor_campo)
+                    if novas_tarefas:
+                        transportes_extraidos.extend(novas_tarefas)
+                        tarefas_encontradas_na_msg = True
+                    break
+
+            if not tarefas_encontradas_na_msg:
+                logging.warning("Nenhum campo com estrutura de tarefas reconhecível foi encontrado nesta mensagem.")
+
+    if not transportes_extraidos:
+        logging.error("Nenhuma tarefa foi extraída da bag. O arquivo YAML não será gerado.")
+        return
+    
+    diretorio_destino = os.path.dirname(caminho_arquivo_saida)
+    if not os.path.exists(diretorio_destino):
+        logging.info("Diretório '{}' não encontrado. Criando...".format(diretorio_destino))
+        os.makedirs(diretorio_destino)
+        
+    caminho_final_para_salvar = encontrar_caminho_disponivel(caminho_arquivo_saida)
+
+    logging.info("Processamento concluído. Salvando {} tarefas totais em '{}'".format(len(transportes_extraidos), caminho_final_para_salvar))
+    with open(caminho_final_para_salvar, 'w') as f:
+        yaml.dump(transportes_extraidos, f, default_flow_style=False, sort_keys=False)
+    
+    logging.info("Arquivo YAML '{}' gerado com sucesso!".format(caminho_final_para_salvar))
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Extrai tarefas únicas de uma bag e salva em um arquivo YAML, sem precisar de ROS.")
-    parser.add_argument('caminho_bag', help='O caminho completo para o arquivo .bag.')
-    parser.add_argument('--output', '-o', default='atwork_commander_tasks.yaml', help='Nome do arquivo YAML de saída.')
+    parser = argparse.ArgumentParser(description="Extrai tarefas de um tópico específico de uma bag e salva em YAML.")
+    parser.add_argument('caminho_bag', help='Caminho completo para o arquivo .bag.')
+    
+    parser.add_argument(
+        '--output', '-o', 
+        default='/home/turtlebot/main_ws/src/work_behavior/config/atwork_commander_tasks.yaml', 
+        help='Caminho completo do arquivo YAML de saída.'
+    )
+    
+    # --- NOVO ARGUMENTO PARA ESPECIFICAR O TÓPICO ---
+    parser.add_argument(
+        '--topic', 
+        default='/atwork_commander/object_task', 
+        help='O tópico ROS do qual extrair as tarefas. Padrão: /atwork_commander/object_task'
+    )
+    
     args = parser.parse_args()
 
     try:
-        extrair_e_salvar_em_yaml(args.caminho_bag, args.output)
-        
-    except ErroLeituraBag as e:
-        # A exceção 'e' já é uma string formatada, então podemos imprimi-la diretamente.
-        logging.error(e)
-        
-    except KeyboardInterrupt:
-        logging.info("\nProcesso interrompido pelo usuário.")
-    
+        # Passa o tópico do argumento para a função principal
+        extrair_tarefas_generico(args.caminho_bag, args.output, args.topic)
     except Exception as e:
-        # Alterado de f-string para .format()
-        logging.error("Ocorreu um erro inesperado: {}".format(e))
+        logging.error("Ocorreu uma falha crítica: {}".format(e))
