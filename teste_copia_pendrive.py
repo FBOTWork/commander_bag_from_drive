@@ -30,7 +30,7 @@ except:
 DESTINO = os.path.abspath(os.path.join(os.path.dirname(__file__), 'Backup_Pendrive'))
 LOG_FILE = os.path.join(DESTINO, 'log.txt')
 BAG_READER_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'bag_reader.py'))
-YAML_OUTPUT_DIR = os.path.join(DESTINO, 'yaml_output')
+YAML_OUTPUT_DIR = os.path.join('/home/zap/main_ws/src/work_behavior/config')
 
 def safe_str(s):
     """Converte string para UTF-8 de forma segura."""
@@ -207,6 +207,8 @@ def main():
                                     process_bag_file(os.path.join(pasta_backup, arquivo))
                         except Exception as e:
                             log("Erro ao processar arquivos .bag: " + safe_str(str(e)))
+
+                    sys.exit(0)
             
             dispositivos_anteriores = dispositivos_atual
             time.sleep(5)
