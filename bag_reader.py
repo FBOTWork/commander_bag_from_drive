@@ -7,8 +7,8 @@ Script GENÉRICO para extrair tarefas de uma bag.
 Este script detecta a estrutura da mensagem ('subtasks' ou 'arena_state')
 e gera um arquivo YAML com as tarefas.
 
-MODIFICAÇÃO: Lê por padrão do tópico /atwork_commander/object_task e
-permite que o tópico seja configurado via linha de comando.
+MODIFICAÇÃO: O script agora para de ler a bag após processar a
+primeira mensagem encontrada no tópico especificado.
 """
 
 import rosbag
@@ -55,10 +55,10 @@ def processar_lista_direta(lista_de_tarefas):
     for tarefa in lista_de_tarefas:
         try:
             transporte = {
-                'source': tarefa.source,
                 'destination': tarefa.destination,
-                'object_id': tarefa.object.object,
                 'is_decoy': tarefa.object.decoy,
+                'object_id': tarefa.object.object,
+                'source': tarefa.source,
                 'target': tarefa.object.target
             }
             transportes.append(transporte)
@@ -88,13 +88,14 @@ def processar_estado_arena(lista_de_workstations):
     for idx, (origem_nome, obj_info) in enumerate(objetos_flat):
         destino_nome = destinos[idx % len(destinos)]
         transportes.append({
-            'source': origem_nome, 'destination': destino_nome,
-            'object_id': obj_info['id'], 'is_decoy': obj_info['is_decoy'],
+            'destination': destino_nome,
+            'is_decoy': obj_info['is_decoy'],
+            'object_id': obj_info['id'],
+            'source': origem_nome,
             'target': obj_info['target']
         })
     return transportes
 
-# A assinatura da função foi atualizada para aceitar o 'topico_alvo'
 def extrair_tarefas_generico(caminho_bag, caminho_arquivo_saida, topico_alvo):
     """
     Função principal que analisa as mensagens da bag de forma genérica.
@@ -104,14 +105,11 @@ def extrair_tarefas_generico(caminho_bag, caminho_arquivo_saida, topico_alvo):
     logging.info("Iniciando leitura do arquivo .bag: '{}'".format(caminho_bag))
     logging.info("Lendo apenas do tópico especificado: '{}'".format(topico_alvo))
 
-
     with rosbag.Bag(caminho_bag, 'r') as bag:
-        # Verifica se o tópico alvo existe na bag
         if topico_alvo not in bag.get_type_and_topic_info()[1].keys():
-            logging.error("ERRO: O tópico '{}' não foi encontrado na bag. Nenhum dado será processado.".format(topico_alvo))
+            logging.error("ERRO: O tópico '{}' não foi encontrado na bag.".format(topico_alvo))
             return
 
-        # A leitura agora é feita apenas no tópico fornecido
         for topico, msg, t in bag.read_messages(topics=[topico_alvo]):
             tarefas_encontradas_na_msg = False
             
@@ -142,12 +140,14 @@ def extrair_tarefas_generico(caminho_bag, caminho_arquivo_saida, topico_alvo):
                         transportes_extraidos.extend(novas_tarefas)
                         tarefas_encontradas_na_msg = True
                     break
-
-            if not tarefas_encontradas_na_msg:
-                logging.warning("Nenhum campo com estrutura de tarefas reconhecível foi encontrado nesta mensagem.")
+            
+            # --- MODIFICAÇÃO PRINCIPAL ---
+            # Após processar a primeira mensagem (com ou sem sucesso), o loop é interrompido.
+            logging.info("Primeira mensagem do tópico lida. Interrompendo a leitura da bag.")
+            break
 
     if not transportes_extraidos:
-        logging.error("Nenhuma tarefa foi extraída da bag. O arquivo YAML não será gerado.")
+        logging.error("Nenhuma tarefa foi extraída da primeira mensagem da bag. O arquivo YAML não será gerado.")
         return
     
     diretorio_destino = os.path.dirname(caminho_arquivo_saida)
@@ -159,12 +159,12 @@ def extrair_tarefas_generico(caminho_bag, caminho_arquivo_saida, topico_alvo):
 
     logging.info("Processamento concluído. Salvando {} tarefas totais em '{}'".format(len(transportes_extraidos), caminho_final_para_salvar))
     with open(caminho_final_para_salvar, 'w') as f:
-        yaml.dump(transportes_extraidos, f, default_flow_style=False, sort_keys=False)
+        yaml.dump(transportes_extraidos, f, default_flow_style=False)
     
     logging.info("Arquivo YAML '{}' gerado com sucesso!".format(caminho_final_para_salvar))
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Extrai tarefas de um tópico específico de uma bag e salva em YAML.")
+    parser = argparse.ArgumentParser(description="Extrai tarefas da primeira mensagem de um tópico da bag e salva em YAML.")
     parser.add_argument('caminho_bag', help='Caminho completo para o arquivo .bag.')
     
     parser.add_argument(
@@ -173,7 +173,6 @@ if __name__ == '__main__':
         help='Caminho completo do arquivo YAML de saída.'
     )
     
-    # --- NOVO ARGUMENTO PARA ESPECIFICAR O TÓPICO ---
     parser.add_argument(
         '--topic', 
         default='/atwork_commander/object_task', 
@@ -183,7 +182,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     try:
-        # Passa o tópico do argumento para a função principal
         extrair_tarefas_generico(args.caminho_bag, args.output, args.topic)
     except Exception as e:
         logging.error("Ocorreu uma falha crítica: {}".format(e))
