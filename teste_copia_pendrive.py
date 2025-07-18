@@ -10,6 +10,10 @@ import sys
 import locale
 import imp
 
+# Compatibilidade Python3: define unicode
+if sys.version_info[0] >= 3:
+    unicode = str
+
 # Configuração de encoding para Python 2.7
 imp.reload(sys)
 sys.setdefaultencoding('utf-8')
@@ -121,7 +125,8 @@ def process_bag_file(bag_path):
     """Executa bag_reader.py no arquivo .bag."""
     try:
         makedirs_exist_ok(YAML_OUTPUT_DIR)
-        nome_saida = os.path.splitext(os.path.basename(bag_path))[0] + "_tasks.yaml"
+        # nome_saida = os.path.splitext(os.path.basename(bag_path))[0] + "_tasks.yaml"
+        nome_saida = "task_list.yaml"
         yaml_saida = os.path.join(YAML_OUTPUT_DIR, nome_saida)
 
         log("Processando: " + os.path.basename(bag_path) + " → " + nome_saida)
