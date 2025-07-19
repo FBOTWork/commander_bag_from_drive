@@ -8,48 +8,50 @@ import subprocess
 from datetime import datetime
 import sys
 import locale
+import imp
 
-# Configurar codificação padrão para UTF-8
-try:
-    import imp
-    imp.reload(sys)
-    sys.setdefaultencoding('utf-8')
-except:
-    pass
+# Compatibilidade Python3: define unicode
+if sys.version_info[0] >= 3:
+    unicode = str
 
-# Configurar locale para UTF-8
-try:
-    locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
-except:
-    try:
-        locale.setlocale(locale.LC_ALL, 'C.UTF-8')
-    except:
-        pass
+# Configuração de encoding para Python 2.7
+imp.reload(sys)
+sys.setdefaultencoding('utf-8')
 
 # Configurações
 DESTINO = os.path.abspath(os.path.join(os.path.dirname(__file__), 'Backup_Pendrive'))
 LOG_FILE = os.path.join(DESTINO, 'log.txt')
 BAG_READER_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'bag_reader.py'))
-YAML_OUTPUT_DIR = os.path.join(DESTINO, 'yaml_output')
+YAML_OUTPUT_DIR = os.path.join('/home/turtlebot/main_ws/src/work_behavior/config/') # diretorio do robo
+#YAML_OUTPUT_DIR = os.path.join('/home/husky/main_ws/src/work_behavior/config') #diretorio do meu pc para testes
+
+def limpar_pasta_yaml():
+    """Limpa todos os arquivos .yaml da pasta de saída configurada."""
+    try:
+        if os.path.exists(YAML_OUTPUT_DIR):
+            log("Limpando pasta YAML: " + YAML_OUTPUT_DIR)
+            for arquivo in os.listdir(YAML_OUTPUT_DIR):
+                if arquivo.endswith('.yaml') or arquivo.endswith('.yml'):
+                    caminho_arquivo = os.path.join(YAML_OUTPUT_DIR, arquivo)
+                    try:
+                        os.unlink(caminho_arquivo)
+                        log("Removido: " + arquivo)
+                    except Exception as e:
+                        log("Erro ao remover " + arquivo + ": " + str(e))
+        else:
+            log("Pasta YAML não existe, criando: " + YAML_OUTPUT_DIR)
+            os.makedirs(YAML_OUTPUT_DIR)
+    except Exception as e:
+        log("Erro ao limpar pasta YAML: " + str(e))
 
 def safe_str(s):
     """Converte string para UTF-8 de forma segura."""
     if isinstance(s, str):
         return s
+    elif isinstance(s, unicode):
+        return s.encode('utf-8', errors='replace')
     else:
         return str(s)
-
-def safe_decode(s):
-    """Decodifica string de forma segura."""
-    if isinstance(s, str):
-        try:
-            return s.decode('utf-8', errors='replace')
-        except UnicodeDecodeError:
-            try:
-                return s.decode('latin-1', errors='replace')
-            except:
-                return s.decode('ascii', errors='replace')
-    return s
 
 def makedirs_exist_ok(path):
     """Cria diretórios se não existirem (compatível com Python 2.7)."""
@@ -63,10 +65,6 @@ def get_mounted_devices():
     """Lista dispositivos montados."""
     try:
         output = subprocess.check_output(['mount'])
-        # Tratar a saída como string simples
-        if isinstance(output, bytes):
-            output = output.decode('ascii', errors='ignore')
-        
         devices = []
         for line in output.split('\n'):
             if line and len(line.split()) >= 3:
@@ -91,7 +89,6 @@ def copy_files(origem, destino):
         
         bag_files_found = False
         
-        # Listar arquivos de forma segura
         try:
             items = os.listdir(origem)
         except OSError as e:
@@ -105,7 +102,6 @@ def copy_files(origem, destino):
             try:
                 src = os.path.join(origem, item)
                 
-                # Copiar apenas arquivos .bag
                 if os.path.isfile(src) and item.lower().endswith('.bag'):
                     dst_name = item.replace("(1)", "")
                     dst = os.path.join(destino, dst_name)
@@ -129,7 +125,8 @@ def process_bag_file(bag_path):
     """Executa bag_reader.py no arquivo .bag."""
     try:
         makedirs_exist_ok(YAML_OUTPUT_DIR)
-        nome_saida = os.path.splitext(os.path.basename(bag_path))[0] + "_tasks.yaml"
+        # nome_saida = os.path.splitext(os.path.basename(bag_path))[0] + "_tasks.yaml"
+        nome_saida = "task_list.yaml"
         yaml_saida = os.path.join(YAML_OUTPUT_DIR, nome_saida)
 
         log("Processando: " + os.path.basename(bag_path) + " → " + nome_saida)
@@ -145,12 +142,8 @@ def process_bag_file(bag_path):
         stdout, stderr = processo.communicate()
         
         if stdout:
-            if isinstance(stdout, bytes):
-                stdout = stdout.decode('ascii', errors='ignore')
             log("Saída:\n" + safe_str(stdout))
         if stderr:
-            if isinstance(stderr, bytes):
-                stderr = stderr.decode('ascii', errors='ignore')
             log("Erros:\n" + safe_str(stderr))
 
         return processo.returncode == 0
@@ -161,26 +154,24 @@ def process_bag_file(bag_path):
 def log(mensagem):
     """Registra mensagens com timestamp."""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
-    # Garantir que a mensagem está em formato seguro
     safe_mensagem = safe_str(mensagem)
-    log_entry = "[" + str(timestamp) + "] " + safe_mensagem
+    log_entry = "[" + timestamp + "] " + safe_mensagem
 
     try:
         with open(LOG_FILE, 'a') as f:
             f.write(log_entry + '\n')
         print(log_entry)
     except Exception as e:
-        # Fallback para caracteres problemáticos
         try:
             with open(LOG_FILE, 'a') as f:
-                f.write("[" + str(timestamp) + "] Erro de codificação na mensagem\n")
-            print("[" + str(timestamp) + "] Erro de codificação na mensagem")
+                f.write("[" + timestamp + "] Erro de codificação na mensagem\n")
+            print("[" + timestamp + "] Erro de codificação na mensagem")
         except:
             pass
 
 def main():
     makedirs_exist_ok(DESTINO)
+    limpar_pasta_yaml()
     log("Iniciando monitoramento de pendrives...")
     
     dispositivos_anteriores = set()
@@ -207,6 +198,8 @@ def main():
                                     process_bag_file(os.path.join(pasta_backup, arquivo))
                         except Exception as e:
                             log("Erro ao processar arquivos .bag: " + safe_str(str(e)))
+
+                    sys.exit(0)
             
             dispositivos_anteriores = dispositivos_atual
             time.sleep(5)

@@ -7,8 +7,13 @@ Script GENÉRICO para extrair tarefas de uma bag.
 Este script detecta a estrutura da mensagem ('subtasks' ou 'arena_state')
 e gera um arquivo YAML com as tarefas.
 
+<<<<<<< HEAD
 MODIFICAÇÃO: O campo 'is_decoy' só é incluído na saída YAML se o seu
 valor for False.
+=======
+MODIFICAÇÃO: O script agora para de ler a bag após processar a
+primeira mensagem encontrada no tópico especificado.
+>>>>>>> cfce05a5b567e289953da158f08dadc2b8fbfe3f
 """
 
 import rosbag
@@ -56,15 +61,22 @@ def processar_lista_direta(lista_de_tarefas):
         try:
             transporte = {
                 'destination': tarefa.destination,
+<<<<<<< HEAD
+=======
+                'is_decoy': tarefa.object.decoy,
+>>>>>>> cfce05a5b567e289953da158f08dadc2b8fbfe3f
                 'object_id': tarefa.object.object,
                 'source': tarefa.source,
                 'target': tarefa.object.target
             }
+<<<<<<< HEAD
             # --- LÓGICA MODIFICADA ---
             # Adiciona o campo 'is_decoy' apenas se for False
             if not tarefa.object.decoy:
                 transporte['is_decoy'] = False
             
+=======
+>>>>>>> cfce05a5b567e289953da158f08dadc2b8fbfe3f
             transportes.append(transporte)
         except AttributeError as e:
             logging.error("Falha ao ler um atributo da tarefa: {}. Tarefa ignorada.".format(e))
@@ -91,6 +103,7 @@ def processar_estado_arena(lista_de_workstations):
 
     for idx, (origem_nome, obj_info) in enumerate(objetos_flat):
         destino_nome = destinos[idx % len(destinos)]
+<<<<<<< HEAD
         
         transporte = {
             'destination': destino_nome,
@@ -124,6 +137,34 @@ def extrair_tarefas_generico(caminho_bag, caminho_arquivo_saida, topico_alvo):
         for topico, msg, t in bag.read_messages(topics=[topico_alvo]):
             tarefas_encontradas_na_msg = False
             
+=======
+        transportes.append({
+            'destination': destino_nome,
+            'is_decoy': obj_info['is_decoy'],
+            'object_id': obj_info['id'],
+            'source': origem_nome,
+            'target': obj_info['target']
+        })
+    return transportes
+
+def extrair_tarefas_generico(caminho_bag, caminho_arquivo_saida, topico_alvo):
+    """
+    Função principal que analisa as mensagens da bag de forma genérica.
+    """
+    transportes_extraidos = []
+
+    logging.info("Iniciando leitura do arquivo .bag: '{}'".format(caminho_bag))
+    logging.info("Lendo apenas do tópico especificado: '{}'".format(topico_alvo))
+
+    with rosbag.Bag(caminho_bag, 'r') as bag:
+        if topico_alvo not in bag.get_type_and_topic_info()[1].keys():
+            logging.error("ERRO: O tópico '{}' não foi encontrado na bag.".format(topico_alvo))
+            return
+
+        for topico, msg, t in bag.read_messages(topics=[topico_alvo]):
+            tarefas_encontradas_na_msg = False
+            
+>>>>>>> cfce05a5b567e289953da158f08dadc2b8fbfe3f
             if not hasattr(msg, '__slots__'):
                 logging.warning("A mensagem do tipo '{}' não é um objeto ROS padrão. Pulando.".format(msg._type))
                 continue
@@ -152,6 +193,11 @@ def extrair_tarefas_generico(caminho_bag, caminho_arquivo_saida, topico_alvo):
                         tarefas_encontradas_na_msg = True
                     break
             
+<<<<<<< HEAD
+=======
+            # --- MODIFICAÇÃO PRINCIPAL ---
+            # Após processar a primeira mensagem (com ou sem sucesso), o loop é interrompido.
+>>>>>>> cfce05a5b567e289953da158f08dadc2b8fbfe3f
             logging.info("Primeira mensagem do tópico lida. Interrompendo a leitura da bag.")
             break
 
