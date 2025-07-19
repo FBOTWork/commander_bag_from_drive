@@ -22,6 +22,7 @@ sys.setdefaultencoding('utf-8')
 DESTINO = os.path.abspath(os.path.join(os.path.dirname(__file__), 'Backup_Pendrive'))
 LOG_FILE = os.path.join(DESTINO, 'log.txt')
 BAG_READER_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'bag_reader.py'))
+<<<<<<< HEAD:teste_copia_pendrive.py
 YAML_OUTPUT_DIR = os.path.join('/home/turtlebot/main_ws/src/work_behavior/config/') # diretorio do robo
 #YAML_OUTPUT_DIR = os.path.join('/home/husky/main_ws/src/work_behavior/config') #diretorio do meu pc para testes
 
@@ -43,6 +44,9 @@ def limpar_pasta_yaml():
             os.makedirs(YAML_OUTPUT_DIR)
     except Exception as e:
         log("Erro ao limpar pasta YAML: " + str(e))
+=======
+YAML_OUTPUT_DIR = os.path.join('/home/zap/main_ws/src/work_behavior/config')
+>>>>>>> 57cec42250b3e9d2b38090a5d55647768e05971d:teste_copia_pendrive.py
 
 def safe_str(s):
     """Converte string para UTF-8 de forma segura."""
